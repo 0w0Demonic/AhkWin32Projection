@@ -24,32 +24,42 @@ class CStyleArrayList extends Win32Struct {
      * @type {Map<String, Integer>} 
      * @see {@link https://www.autohotkey.com/docs/v2/lib/DllCall.htm#types `DllCall` types}
      */
-    static DllCallTypeWidths := (M := Map(), M.CaseSense := false, M.Set(
-        "Int64",    8,
-        "Int",      4,
-        "Short",    2,
-        "Char",     1,
-        "Ptr",      A_PtrSize,
-        "UInt64",   8,
-        "UInt",     4,
-        "UShort",   2,
-        "UChar",    1,
-        "UPtr",     A_PtrSize,
-        "Double",   8,
-        "Float",    4,
-        "Int64*",   A_PtrSize,
-        "Int*",     A_PtrSize,
-        "Short*",   A_PtrSize,
-        "Char*",    A_PtrSize,
-        "Ptr*",     A_PtrSize,
-        "UInt64*",  A_PtrSize,
-        "UInt*",    A_PtrSize,
-        "UShort*",  A_PtrSize,
-        "UChar*",   A_PtrSize,
-        "UPtr*",    A_PtrSize,
-        "Double*",  A_PtrSize,
-        "Float*",   A_PtrSize
-    ), M)
+    static DllCallTypeWidths {
+        get {
+            M := Map()
+            M.CaseSense := false
+            M.Set(
+                "Int64",    8,
+                "Int",      4,
+                "Short",    2,
+                "Char",     1,
+                "Ptr",      A_PtrSize,
+                "UInt64",   8,
+                "UInt",     4,
+                "UShort",   2,
+                "UChar",    1,
+                "UPtr",     A_PtrSize,
+                "Double",   8,
+                "Float",    4,
+                "Int64*",   A_PtrSize,
+                "Int*",     A_PtrSize,
+                "Short*",   A_PtrSize,
+                "Char*",    A_PtrSize,
+                "Ptr*",     A_PtrSize,
+                "UInt64*",  A_PtrSize,
+                "UInt*",    A_PtrSize,
+                "UShort*",  A_PtrSize,
+                "UChar*",   A_PtrSize,
+                "UPtr*",    A_PtrSize,
+                "Double*",  A_PtrSize,
+                "Float*",   A_PtrSize
+            )
+            CStyleArrayList.DefineProp("DllCallTypeWidths", {
+                Get: (_) => M.Clone()
+            })
+            return M
+        }
+    }
 
 ;@region Static Properties
 
@@ -96,8 +106,15 @@ class CStyleArrayList extends Win32Struct {
     length {
         get => this.__length
         set {
+            resize := false
             while(value >= this.Capacity && this.HasProp("__length")){
-                this._Resize()
+                resize := true
+                this.capacity *= 2
+            }
+            if (resize) {
+                newBuf := Buffer(this.capacity * this._GetElementWidth())
+                this.CopyTo(newBuf)
+                this.__buf := newBuf
             }
             this.__length := value
         }
@@ -209,8 +226,10 @@ class CStyleArrayList extends Win32Struct {
     Push(values*){
         for(value in values){
             this._AssertMemberType(value)
-            this.length += 1
-            this[this.length] := value
+        }
+        this.length += values.length
+        for(value in values){
+            this[this.length - values.length + A_Index] := value
         }
     }
 
@@ -232,24 +251,29 @@ class CStyleArrayList extends Win32Struct {
      * @see {@link https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlmovememory RtlMoveMemory macro (wdm.h) - Windows drivers | Microsoft Learn}
      */
     InsertAt(index, values*){
-        this._AssertIndexInRange(index)
+        if (index == 0 || index == this.length + 1) {
+            index := this.length + 1
+        } else {
+            index := this._AssertIndexInRange(index)
+        }
 
         for(value in values){
             this._AssertMemberType(value)
+        }
 
-            this.length += 1
+        this.length += values.length
+        A_LastError := 0
+        DllCall("kernel32\RtlMoveMemory",
+            "ptr", this.ptr + this._GetOffsetForIndex(index + values.length),
+            "ptr", this.ptr + this._GetOffsetForIndex(index),
+            "int", (this.length - values.length - index + 1)
+                            * this._GetElementWidth())
 
-            shiftSize := (this.length - index) * this._GetElementWidth()
-            A_LastError := 0
-            DllCall("kernel32\RtlMoveMemory", 
-                "ptr", this.ptr + this._GetOffsetForIndex(index + 1), 
-                "ptr", this.ptr + this._GetOffsetForIndex(index), 
-                "int", shiftSize)
+        if(A_LastError)
+            throw OSError()
 
-            if(A_LastError)
-                throw OSError()
-
-            this[index++] := value
+        for(value in values){
+            this[index + A_Index - 1] := value
         }
     }
 
@@ -259,20 +283,32 @@ class CStyleArrayList extends Win32Struct {
      * @param {Integer} index the index of the element to remove
      * @returns {Integer|Win32Struct} the removed element
      */
-    RemoveAt(index){
-        val := this.elementType == Primitive ? this.Get(index) : this.Get(index).Clone()
+    RemoveAt(index, length := 1){
+        index := this._AssertIndexInRange(index)
+        if (!IsInteger(length)) {
+            throw TypeError("Expected an Integer, but got a(n) " . Type(length))
+        } else if (length < 0) {
+            throw ValueError("Length must be >= 0",, length)
+        } else if (index + length - 1 > this.length) {
+            throw IndexError("Range out of bounds of array of length " . this.length,,
+                             "index: (" . index . "); length: (" . length . ")")
+        }
+        if (length == 1) {
+            val := this.elementType == Primitive ? this.Get(index) : this.Get(index).Clone()
+        } else {
+            val := ""
+        }
 
-        shiftSize := (this.length - index) * this._GetElementWidth()
         A_LastError := 0
         DllCall("kernel32\RtlMoveMemory", 
             "ptr", this.ptr + this._GetOffsetForIndex(index), 
-            "ptr", this.ptr + this._GetOffsetForIndex(index + 1), 
-            "int", shiftSize)
+            "ptr", this.ptr + this._GetOffsetForIndex(index + length),
+            "int", (this.length - index + 1) * this._GetElementWidth())
 
         if(A_LastError)
             throw OSError()
 
-        this.length -= 1
+        this.length -= length
         return val
     }
 
@@ -283,9 +319,7 @@ class CStyleArrayList extends Win32Struct {
      * @param {Integer} index index to check
      * @returns {Boolean} 1 if the index is valid, 0 if not
      */
-    Has(index){
-        return (index >= 1 && index <= this.length)
-    }
+    Has(index) => (index != 0) && (Abs(index) <= this.length)
 
     /**
      * Returns the value at a given index. This is equivalent to `ArrayObj[Index]`, 
@@ -300,7 +334,7 @@ class CStyleArrayList extends Win32Struct {
      * @returns {Integer|Win32Struct} the value at `index`
      */
     Get(index, default?){
-        this._AssertIndexInRange(index)
+        index := this._AssertIndexInRange(index)
 
         offset := this._GetOffsetForIndex(index)
 
@@ -317,7 +351,7 @@ class CStyleArrayList extends Win32Struct {
      * @param {Integer|Win32Struct} value the value to set 
      */
     Set(index, value){
-        this._AssertIndexInRange(index)
+        index := this._AssertIndexInRange(index)
         this._AssertMemberType(value)
 
         offset := this._GetOffsetForIndex(index)
@@ -354,20 +388,6 @@ class CStyleArrayList extends Win32Struct {
 
 ;@region Instance Methods
 ;@region Private Methods
-
-    /**
-     * @private Resizes the array by creating a new Buffer and copying the contents of the array. The
-     *      capacity is always doubled and can never decrease
-     * @see {@link https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlcopymemory RtlCopyMemory macro (wdm.h) - Windows drivers | Microsoft Learn}
-     */
-    _Resize(){
-        this.capacity *= 2
-        newBuf := Buffer(this.capacity * this._GetElementWidth())
-
-        this.CopyTo(newBuf)
-                
-        this.__buf := newBuf
-    }
 
     /**
      * @private Get the width in bytes of a single element in the array
@@ -408,8 +428,10 @@ class CStyleArrayList extends Win32Struct {
         if(!IsInteger(index))
             throw TypeError("Expected an Integer but got a(n) " . Type(index), -1, index)
 
-        if(index < 1 || index > this.length)
+        if(index == 0 || Abs(index) > this.length){
             throw IndexError("Index out of range for array of length " . this.length, -1, index)
+        }
+        return index + ((index < 0) && (this.length + 1))
     }
 
 ;@endregion Private Methods
