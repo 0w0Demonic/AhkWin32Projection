@@ -268,7 +268,6 @@ class CStyleArrayList extends Win32Struct {
             "ptr", this.ptr + this._GetOffsetForIndex(index),
             "int", (this.length - values.length - index + 1)
                             * this._GetElementWidth())
-
         if(A_LastError)
             throw OSError()
 
@@ -335,7 +334,6 @@ class CStyleArrayList extends Win32Struct {
      */
     Get(index, default?){
         index := this._AssertIndexInRange(index)
-
         offset := this._GetOffsetForIndex(index)
 
         return this.elementType == Primitive?
@@ -357,7 +355,7 @@ class CStyleArrayList extends Win32Struct {
         offset := this._GetOffsetForIndex(index)
 
         if(this.elementType == Primitive){
-            return NumPut(this.dllCallType, value, this.ptr, offset)
+            NumPut(this.dllCallType, value, this.ptr, offset)
         }
         else{
             ;Copy the actual memory
