@@ -7,6 +7,64 @@
  * utility methods for them.
  */
 class Win32Enum {
+    static __New() {
+        if (this == Win32Enum || this == Win32BitflagEnum) {
+            return
+        }
+
+        ; filter out enum constants, which are `{ get; }`-only. Use
+        ; underscores _ to figure out a common prefix across all constants
+        ; to be removed.
+        PropNames := Array()
+        for PropName in ObjOwnProps(this) {
+            PropDesc := this.GetOwnPropDesc(PropName)
+            if (!InStr(PropName, "_") ||
+                 ObjOwnPropCount(PropDesc) != 1 ||
+                !ObjHasOwnProp(PropDesc, "Get"))
+            {
+                continue
+            }
+            PropNames.Push(PropName)
+        }
+
+        ; find out prefix
+        if (PropNames.Length < 2) {
+            return
+        }
+        Enumer := PropNames.__Enum(1)
+        Enumer(&CommonPrefix)
+        while (Enumer(&Value)) {
+            CommonPrefix := GetCommonPrefix(CommonPrefix, Value)
+        }
+
+        ; remove it from the property names. keep both the short and
+        ; long version.
+        for PropName in PropNames {
+            PropDesc := this.GetOwnPropDesc(PropName)
+            NewPropName := SubStr(PropName, StrLen(CommonPrefix) + 1)
+            if (this.HasOwnProp(NewPropName)) {
+                continue
+            }
+            this.DefineProp(NewPropName, PropDesc)
+        }
+
+        GetCommonPrefix(A, B) {
+            Result := ""
+
+            Current := 1
+            while (Found := InStr(A, "_", unset, Current)) {
+                SegA := SubStr(A, Current, Found - Current + 1)
+                SegB := SubStr(B, Current, Found - Current + 1)
+                if (SegA != SegB) {
+                    break
+                }
+                Result .= SegA
+                Current := Found + 1
+            }
+
+            return Result
+        }
+    }
 
     /**
      * Given an enum value, returns the value's name. This enumerates potetially all of the enum's values,
