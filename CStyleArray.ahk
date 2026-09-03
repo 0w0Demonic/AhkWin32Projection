@@ -96,8 +96,15 @@ class CStyleArrayList extends Win32Struct {
     length {
         get => this.__length
         set {
+            resize := false
             while(value >= this.Capacity && this.HasProp("__length")){
-                this._Resize()
+                resize := true
+                this.capacity *= 2
+            }
+            if (resize) {
+                newBuf := Buffer(this.capacity * this._GetElementWidth())
+                this.CopyTo(newBuf)
+                this.__buf := newBuf
             }
             this.__length := value
         }
@@ -209,8 +216,10 @@ class CStyleArrayList extends Win32Struct {
     Push(values*){
         for(value in values){
             this._AssertMemberType(value)
-            this.length += 1
-            this[this.length] := value
+        }
+        this.length += values.length
+        for(value in values){
+            this[this.length - values.length + A_Index] := value
         }
     }
 
@@ -236,20 +245,21 @@ class CStyleArrayList extends Win32Struct {
 
         for(value in values){
             this._AssertMemberType(value)
+        }
 
-            this.length += 1
+        this.length += values.length
+        A_LastError := 0
+        DllCall("kernel32\RtlMoveMemory",
+            "ptr", this.ptr + this._GetOffsetForIndex(index + values.length),
+            "ptr", this.ptr + this._GetOffsetForIndex(index),
+            "int", (this.length - values.length - index + 1)
+                            * this._GetElementWidth())
 
-            shiftSize := (this.length - index) * this._GetElementWidth()
-            A_LastError := 0
-            DllCall("kernel32\RtlMoveMemory", 
-                "ptr", this.ptr + this._GetOffsetForIndex(index + 1), 
-                "ptr", this.ptr + this._GetOffsetForIndex(index), 
-                "int", shiftSize)
+        if(A_LastError)
+            throw OSError()
 
-            if(A_LastError)
-                throw OSError()
-
-            this[index++] := value
+        for(value in values){
+            this[index + A_Index - 1] := value
         }
     }
 
@@ -259,20 +269,29 @@ class CStyleArrayList extends Win32Struct {
      * @param {Integer} index the index of the element to remove
      * @returns {Integer|Win32Struct} the removed element
      */
-    RemoveAt(index){
-        val := this.elementType == Primitive ? this.Get(index) : this.Get(index).Clone()
+    RemoveAt(index, length := 1){
+        if (!IsNumber(length)) {
+            throw TypeError("Expected an Integer, but got a(n) " . Type(length))
+        } else if (length < 0) {
+            throw ValueError("Length must be >= 0",, length)
+        }
+        length := Floor(length)
+        if (length == 1) {
+            val := this.elementType == Primitive ? this.Get(index) : this.Get(index).Clone()
+        } else {
+            val := ""
+        }
 
-        shiftSize := (this.length - index) * this._GetElementWidth()
         A_LastError := 0
         DllCall("kernel32\RtlMoveMemory", 
             "ptr", this.ptr + this._GetOffsetForIndex(index), 
-            "ptr", this.ptr + this._GetOffsetForIndex(index + 1), 
-            "int", shiftSize)
+            "ptr", this.ptr + this._GetOffsetForIndex(index + length),
+            "int", (this.length - index + 1) * this._GetElementWidth())
 
         if(A_LastError)
             throw OSError()
 
-        this.length -= 1
+        this.length -= length
         return val
     }
 
@@ -354,20 +373,6 @@ class CStyleArrayList extends Win32Struct {
 
 ;@region Instance Methods
 ;@region Private Methods
-
-    /**
-     * @private Resizes the array by creating a new Buffer and copying the contents of the array. The
-     *      capacity is always doubled and can never decrease
-     * @see {@link https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlcopymemory RtlCopyMemory macro (wdm.h) - Windows drivers | Microsoft Learn}
-     */
-    _Resize(){
-        this.capacity *= 2
-        newBuf := Buffer(this.capacity * this._GetElementWidth())
-
-        this.CopyTo(newBuf)
-                
-        this.__buf := newBuf
-    }
 
     /**
      * @private Get the width in bytes of a single element in the array

@@ -58,11 +58,10 @@ class Win32FixedArray extends CStyleArrayList {
     }
 
     ; Fixed arrays cannot be resized - block all mutation methods
-    Push(values*)   => this._ThrowImmutable()
-    Pop()           => this._ThrowImmutable()
-    InsertAt(args*) => this._ThrowImmutable()
-    RemoveAt(index) => this._ThrowImmutable()
-    _Resize()       => this._ThrowImmutable()
+    Push(*)                  => this._ThrowImmutable()
+    Pop()                    => this._ThrowImmutable()
+    InsertAt(*)              => this._ThrowImmutable()
+    RemoveAt(index, length?) => this._ThrowImmutable()
 
     /**
      * @private Throws an error indicating that fixed arrays cannot be resized
