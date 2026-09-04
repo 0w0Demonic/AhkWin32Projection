@@ -139,7 +139,7 @@ class CStyleArrayList extends Win32Struct {
      * @param {Integer} length The starting length of the array if `elementType` is `Primitive` (default: 1)
      * @see {@link https://www.autohotkey.com/docs/v2/lib/DllCall.htm#types `DllCall` types}
      */
-    __New(elementType, lengthOrDllCallType, length := 1){
+    __New(elementType, lengthOrDllCallType, length := 0){
         if(!(elementType is Class))
             throw TypeError("Expected a Class, but got a(n) " . Type(elementType) . ". Use Primitive for arrays of primitive types")
 
